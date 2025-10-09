@@ -1,0 +1,31 @@
+target
+model.onnx
+.vscode
+*.log
+log.txt
+logs/
+report.txt
+report.json
+table_cache_dev_*
+.DS_Store
+.env
+proptest-regressions/
+*.json
+zkml/bench
+zkml/data
+zkml/cifar_net.pth
+zkml/cnn_model.pth
+zkml/assets/scripts/covid/data*
+zkml/deepprove.csv
+zkml/bench.csv
+.venv
+
+# Devenv
+.devenv*
+devenv.local.nix
+
+# direnv
+.direnv
+
+# pre-commit
+.pre-commit-config.yaml
