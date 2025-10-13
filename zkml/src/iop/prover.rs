@@ -526,4 +526,78 @@ where
 
         Ok(())
     }
+
+    /// Prove only a subset of layers [start_layer, end_layer) using claims sourced from a prior proof state.
+    /// This method mimics the proving logic from the main prove() method (lines 462-483).
+    /// 
+    /// # Arguments
+    /// * `trace` - The inference trace containing execution data for all layers
+    /// * `claims_by_layer` - Claims from previously proven layers, used as input for current layers
+    /// * `out_claims` - Output claims for verification
+    /// * `start_layer` - Starting layer index (inclusive)
+    /// * `end_layer` - Ending layer index (exclusive)
+    /// 
+    /// # Returns
+    /// * `HashMap<NodeId, Vec<Claim<E>>>` - Claims generated for the specified layer range
+    pub fn prove_layers_from_trace<'b>(
+        &mut self,
+        trace: &InferenceTrace<'b, E, Element>,
+        claims_by_layer: &HashMap<NodeId, Vec<Claim<E>>>,
+        out_claims: &[Claim<E>],
+        start_layer: usize,
+        end_layer: usize,
+    ) -> anyhow::Result<HashMap<NodeId, Vec<Claim<E>>>> {
+        let forward_iter: Vec<_> = self.ctx.steps_info.to_forward_iterator().collect();
+
+        ensure!(
+            start_layer < end_layer && end_layer <= forward_iter.len(),
+            "Invalid layer range: start={}, end={}, total_layers={}",
+            start_layer,
+            end_layer,
+            forward_iter.len()
+        );
+
+        debug!("== Proving layers {} to {} ==", start_layer, end_layer - 1);
+        let metrics = Metrics::new();
+        let trace_fields = trace.clone().into_fields();
+
+        // Build a fresh claims map for this partial proving - mimicking the main prove() method
+        let mut new_claims_by_layer: HashMap<NodeId, Vec<Claim<E>>> = HashMap::new();
+
+        // Prove only the selected range - mimicking the main prove() method logic (lines 462-483)
+        for (node_id, ctx) in forward_iter[start_layer..end_layer].iter() {
+            let InferenceStep {
+                op: node_operation,
+                step_data,
+            } = trace_fields
+                .get_step(node_id)
+                .ok_or(anyhow!("Step in trace not found for node {}", node_id))?;
+
+            trace!(
+                "Proving node with id {node_id}: {:?}",
+                node_operation.describe()
+            );
+
+            // Mimic the exact logic from main prove() method (line 474)
+            let claims_for_prove = ctx.claims_for_node(claims_by_layer, out_claims)?;
+            
+            // Mimic the exact logic from main prove() method (lines 475-481)
+            let claims = if node_operation.is_provable() {
+                node_operation.prove(*node_id, &ctx.ctx, claims_for_prove, step_data, self)?
+            } else {
+                // we only propagate the claims, without changing them, as a non-provable layer
+                // shouldn't change the input values
+                claims_for_prove.into_iter().cloned().collect()
+            };
+            
+            // Mimic the exact logic from main prove() method (line 482)
+            new_claims_by_layer.insert(*node_id, claims);
+        }
+
+        let span = metrics.to_span();
+        stream_metrics(&format!("Layers {}-{}", start_layer, end_layer - 1), &span);
+        debug!("== Layers {} to {} completed in {} ==", start_layer, end_layer - 1, span);
+
+        Ok(new_claims_by_layer)
+    }
 }
