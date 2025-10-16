@@ -438,13 +438,13 @@ where
 
         debug!("== Generating claims ==");
         let metrics = Metrics::new();
-        let trace = full_trace.into_fields();
+        let trace_fields = full_trace.clone().into_fields();
         // this is the random set of variables to fix at each step derived as the output of
         // sumcheck.
         // For the first step, so before the first sumcheck, we generate it from FS.
         // The dimension is simply the number of variables needed to address all the space of the
         // input vector.
-        let out_claims = trace
+        let out_claims = trace_fields
             .outputs()?
             .into_iter()
             .map(|out| {
@@ -459,12 +459,44 @@ where
             })
             .collect_vec();
 
+        // // Three-part layered proving to test prove_layers_from_trace
+        // let total_layers = self.ctx.steps_info.to_forward_iterator().count();
+        // let s1 = total_layers / 3;
+        // let s2 = (2 * total_layers) / 3;
+        
+        // debug!("== Three-part layered proving: total_layers={}, parts=[0..{}), [{}..{}), [{}..{}) ==", 
+        //        total_layers, s1, s1, s2, s2, total_layers);
+        
+        // let mut cumulative_claims: HashMap<NodeId, Vec<Claim<E>>> = HashMap::new();
+        
+        // // Process all layers in backward order (same as original logic) but using prove_layers_from_trace
+        // let backward_iter: Vec<_> = self.ctx.steps_info.to_backward_iterator().collect();
+        
+        // for (idx, (node_id, ctx)) in backward_iter.iter().enumerate() {
+        //     debug!("== Proving layer {} (node {}) ==", total_layers - 1 - idx, node_id);
+            
+        //     let part_claims = self.prove_layers_from_trace(
+        //         &full_trace,
+        //         &cumulative_claims,
+        //         &out_claims,
+        //         total_layers - 1 - idx,
+        //         total_layers - idx,
+        //     )?;
+            
+        //     // Merge newly produced claims
+        //     for (k, v) in part_claims.into_iter() {
+        //         cumulative_claims.insert(k, v);
+        //     }
+        // }
+
+        // Original single-pass proving logic (commented out for testing)
+
         let mut claims_by_layer: HashMap<NodeId, Vec<Claim<E>>> = HashMap::new();
         for (node_id, ctx) in self.ctx.steps_info.to_backward_iterator() {
             let InferenceStep {
                 op: node_operation,
                 step_data,
-            } = trace
+            } = trace_fields
                 .get_step(&node_id)
                 .ok_or(anyhow!("Step in trace not found for node {}", node_id))?;
             trace!(
@@ -481,6 +513,7 @@ where
             };
             claims_by_layer.insert(node_id, claims);
         }
+
         let span = metrics.to_span();
         stream_metrics("Claims", &span);
         debug!("== Claims generation metrics {} ==", span);
