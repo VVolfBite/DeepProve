@@ -20,8 +20,7 @@ use crate::{
 use anyhow::{anyhow, ensure};
 use ff_ext::ExtensionField;
 use std::collections::HashMap;
-use std::{env, fs, path::PathBuf, time::{SystemTime, UNIX_EPOCH}};
-use rmp_serde;
+use std::{env, fs, path::PathBuf};
 use tracing::trace;
 
 use itertools::Itertools;
@@ -105,7 +104,7 @@ where
     }
 
     pub(crate) fn push_proof(&mut self, node_id: NodeId, proof: LayerProof<E, PCS>) {
-        // Always persist intermediate layer proof to ./proofs with timestamped filename.
+        // Always persist intermediate layer proof to ./proofs with simplified filename.
         let _ = Self::save_intermediate_proof(node_id, &proof);
         self.proofs.insert(node_id, proof);
     }
@@ -114,20 +113,46 @@ where
         // Choose directory: env var if set, else default to ./proofs
         let dir = env::var("ZKML_INTERMEDIATE_DIR").unwrap_or_else(|_| "proofs".to_string());
         let variant = proof.variant_name().to_lowercase();
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|_| ())?.as_millis();
         let path: PathBuf = PathBuf::from(dir).join(format!(
-            "layer-{}-{:06}-{}.rmp",
-            now, node_id, variant
+            "layer-{:06}-{}.rmp",
+            node_id, variant
         ));
         if let Some(parent) = path.parent() {
             if let Err(_e) = fs::create_dir_all(parent) {
                 return Err(());
             }
         }
-        match rmp_serde::to_vec_named(proof) {
+        match Proof::<E, PCS>::serialize_layer_proof(proof) {
             Ok(bytes) => fs::write(&path, bytes).map_err(|_| ()).map(|_| path),
             Err(_e) => Err(()),
         }
+    }
+    
+    /// Save claims for a specific layer to file
+    pub fn save_claims(node_id: NodeId, claims: &Vec<Claim<E>>) -> Result<PathBuf, ()> {
+        let dir = env::var("ZKML_CLAIMS_DIR").unwrap_or_else(|_| "claims".to_string());
+        let path: PathBuf = PathBuf::from(dir).join(format!("claims-{:06}.rmp", node_id));
+        
+        if let Some(parent) = path.parent() {
+            if let Err(_e) = fs::create_dir_all(parent) {
+                return Err(());
+            }
+        }
+        
+        match claims.first().unwrap().serialize() {
+            Ok(bytes) => fs::write(&path, bytes).map_err(|_| ()).map(|_| path),
+            Err(_e) => Err(()),
+        }
+    }
+    
+    /// Load claims for a specific layer from file
+    pub fn load_claims(node_id: NodeId) -> Result<Vec<Claim<E>>, ()> {
+        let dir = env::var("ZKML_CLAIMS_DIR").unwrap_or_else(|_| "claims".to_string());
+        let path: PathBuf = PathBuf::from(dir).join(format!("claims-{:06}.rmp", node_id));
+        
+        let bytes = fs::read(&path).map_err(|_| ())?;
+        let claim: Claim<E> = Claim::deserialize(&bytes).map_err(|_| ())?;
+        Ok(vec![claim])
     }
 
     #[timed::timed_instrument(level = "debug")]
@@ -511,7 +536,10 @@ where
                 // shouldn't change the input values
                 claims_for_prove.into_iter().cloned().collect()
             };
-            claims_by_layer.insert(node_id, claims);
+            claims_by_layer.insert(node_id, claims.clone());
+            
+            // Save claims for distributed proving
+            let _ = Self::save_claims(node_id, &claims);
         }
 
         let span = metrics.to_span();

@@ -42,6 +42,52 @@ where
         let proof: LayerProof<E, PCS> = rmp_serde::from_slice(bytes)?;
         Ok(proof)
     }
+    
+    /// Serialize the entire proof to MessagePack bytes
+    pub fn serialize(&self) -> anyhow::Result<Vec<u8>>
+    where
+        E: Serialize,
+    {
+        let bytes = rmp_serde::to_vec_named(self)?;
+        Ok(bytes)
+    }
+    
+    /// Deserialize the entire proof from MessagePack bytes
+    pub fn deserialize(bytes: &[u8]) -> anyhow::Result<Self>
+    where
+        E: DeserializeOwned,
+    {
+        let proof: Self = rmp_serde::from_slice(bytes)?;
+        Ok(proof)
+    }
+    
+    /// Save the entire proof to file
+    pub fn save_to_file<P: AsRef<std::path::Path>>(&self, path: P) -> anyhow::Result<()>
+    where
+        E: Serialize,
+    {
+        let bytes = self.serialize()?;
+        std::fs::write(path, bytes)?;
+        Ok(())
+    }
+    
+    /// Load the entire proof from file
+    pub fn load_from_file<P: AsRef<std::path::Path>>(path: P) -> anyhow::Result<Self>
+    where
+        E: DeserializeOwned,
+    {
+        let bytes = std::fs::read(path)?;
+        Self::deserialize(&bytes)
+    }
+    
+    /// Serialize a single layer proof to MessagePack bytes
+    pub fn serialize_layer_proof(proof: &LayerProof<E, PCS>) -> anyhow::Result<Vec<u8>>
+    where
+        E: Serialize,
+    {
+        let bytes = rmp_serde::to_vec_named(proof)?;
+        Ok(bytes)
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize)]

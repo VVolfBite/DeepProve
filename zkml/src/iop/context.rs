@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use tracing::{debug, trace};
 use transcript::Transcript;
+use rmp_serde;
 
 /// Info related to the lookup protocol tables.
 /// Here `poly_id` is the multiplicity poly for this table.
@@ -211,6 +212,43 @@ where
     pub fn write_to_transcript<T: Transcript<E>>(&self, t: &mut T) -> anyhow::Result<()> {
         self.commitment_ctx.write_to_transcript(t)?;
         Ok(())
+    }
+    
+    /// Serialize the context to MessagePack bytes
+    pub fn serialize(&self) -> anyhow::Result<Vec<u8>>
+    where
+        E: Serialize,
+    {
+        let bytes = rmp_serde::to_vec_named(self)?;
+        Ok(bytes)
+    }
+    
+    /// Deserialize the context from MessagePack bytes
+    pub fn deserialize(bytes: &[u8]) -> anyhow::Result<Self>
+    where
+        E: DeserializeOwned,
+    {
+        let context: Self = rmp_serde::from_slice(bytes)?;
+        Ok(context)
+    }
+    
+    /// Save the context to file
+    pub fn save_to_file<P: AsRef<std::path::Path>>(&self, path: P) -> anyhow::Result<()>
+    where
+        E: Serialize,
+    {
+        let bytes = self.serialize()?;
+        std::fs::write(path, bytes)?;
+        Ok(())
+    }
+    
+    /// Load the context from file
+    pub fn load_from_file<P: AsRef<std::path::Path>>(path: P) -> anyhow::Result<Self>
+    where
+        E: DeserializeOwned,
+    {
+        let bytes = std::fs::read(path)?;
+        Self::deserialize(&bytes)
     }
 }
 

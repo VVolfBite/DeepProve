@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
 use ff_ext::ExtensionField;
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use rmp_serde;
 
 use crate::{
     Element, IO, Tensor,
@@ -12,8 +14,10 @@ use crate::{
     tensor::Shape,
 };
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(bound(serialize = "E: Serialize, D: Serialize", deserialize = "E: DeserializeOwned, D: DeserializeOwned"))]
 pub struct Trace<'a, E: ExtensionField, N, D> {
+    #[serde(skip)]  // 跳过 steps，因为包含 &Layer 引用
     pub(crate) steps: HashMap<NodeId, InferenceStep<'a, E, N, D>>,
     pub(crate) input: Vec<Tensor<D>>,
     pub(crate) output: Vec<Tensor<D>>,
@@ -179,4 +183,51 @@ pub struct StepData<D, E: ExtensionField> {
     pub(crate) inputs: Vec<Tensor<D>>,
     pub(crate) outputs: LayerOut<D, E>,
     pub(crate) unpadded_output_shapes: Vec<Shape>,
+}
+
+// ============================================================================
+// Trace Serialization Methods (skipping op and proving_data)
+// ============================================================================
+
+impl<'a, E: ExtensionField, N, D> Trace<'a, E, N, D> {
+    /// Serialize the trace to MessagePack bytes (skipping op and proving_data)
+    pub fn serialize(&self) -> anyhow::Result<Vec<u8>>
+    where
+        E: Serialize,
+        D: Serialize + Clone,
+    {
+        let bytes = rmp_serde::to_vec_named(self)?;
+        Ok(bytes)
+    }
+
+    /// Save the trace to file (skipping op field)
+    pub fn save_to_file<P: AsRef<std::path::Path>>(&self, path: P) -> anyhow::Result<()>
+    where
+        E: Serialize,
+        D: Serialize + Clone,
+    {
+        let bytes = self.serialize()?;
+        std::fs::write(path, bytes)?;
+        Ok(())
+    }
+
+    /// Deserialize the trace from MessagePack bytes
+    pub fn deserialize(bytes: &[u8]) -> anyhow::Result<Self>
+    where
+        E: DeserializeOwned,
+        D: DeserializeOwned,
+    {
+        let trace: Self = rmp_serde::from_slice(bytes)?;
+        Ok(trace)
+    }
+
+    /// Load the trace from file
+    pub fn load_from_file<P: AsRef<std::path::Path>>(path: P) -> anyhow::Result<Self>
+    where
+        E: DeserializeOwned,
+        D: DeserializeOwned,
+    {
+        let bytes = std::fs::read(path)?;
+        Self::deserialize(&bytes)
+    }
 }

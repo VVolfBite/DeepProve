@@ -8,9 +8,10 @@ use gkr::structs::PointAndEval;
 use itertools::Itertools;
 use quantization::Fieldizer;
 use rayon::iter::ParallelIterator;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::{borrow::Borrow, env, str::FromStr};
 use transcript::{BasicTranscript, Transcript};
+use rmp_serde;
 mod commit;
 pub mod iop;
 pub mod quantization;
@@ -53,6 +54,43 @@ impl<E> Claim<E> {
     }
     pub fn mle_num_vars(&self) -> usize {
         self.point.len()
+    }
+    
+    /// Serialize a claim to MessagePack bytes
+    pub fn serialize(&self) -> anyhow::Result<Vec<u8>>
+    where
+        E: Serialize,
+    {
+        let bytes = rmp_serde::to_vec_named(self)?;
+        Ok(bytes)
+    }
+    
+    /// Deserialize a claim from MessagePack bytes
+    pub fn deserialize(bytes: &[u8]) -> anyhow::Result<Self>
+    where
+        E: DeserializeOwned,
+    {
+        let claim: Self = rmp_serde::from_slice(bytes)?;
+        Ok(claim)
+    }
+    
+    /// Save a claim to file
+    pub fn save_to_file<P: AsRef<std::path::Path>>(&self, path: P) -> anyhow::Result<()>
+    where
+        E: Serialize,
+    {
+        let bytes = self.serialize()?;
+        std::fs::write(path, bytes)?;
+        Ok(())
+    }
+    
+    /// Load a claim from file
+    pub fn load_from_file<P: AsRef<std::path::Path>>(path: P) -> anyhow::Result<Self>
+    where
+        E: DeserializeOwned,
+    {
+        let bytes = std::fs::read(path)?;
+        Self::deserialize(&bytes)
     }
 }
 
@@ -112,7 +150,7 @@ pub(crate) fn to_bit_sequence_le(
         bit_length as u32 <= usize::BITS,
         "bit_length cannot exceed usize::BITS"
     );
-    (0..bit_length).map(move |i| ((num >> i) & 1))
+    (0..bit_length).map(move |i| num >> i & 1)
 }
 
 pub(crate) fn try_unzip<I, C, T, E>(iter: I) -> Result<C, E>
